@@ -24,7 +24,7 @@ class Board:
         self.turn_counter = 0
         self.max_turns = 20
         self.move_queue = []
-        self.board = [["."] * 3] * 3
+        self.board = [["."] * 3 for _ in range(self.row)]
 
     def get_current_turns(self):
         return self.curr_turn

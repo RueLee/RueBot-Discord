@@ -1,7 +1,4 @@
 .env
 verification-message.json
 
-**/__pycache__/
-*.pyc
-*.pyo
-*.pyd
+__pycache__/

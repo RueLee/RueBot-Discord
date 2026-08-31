@@ -4,7 +4,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-VERIFICATION_CHANNEL_ID = 1524508477802676244
 DATA_FILE = "verification-message.json"
 
 class VerificationButton(discord.ui.View):
@@ -32,11 +31,11 @@ class Verification(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        message_id = self.load_verification_message()
+        message_id, channel_id = self.load_verification_message()
         if not message_id:
             return
 
-        channel = self.bot.get_channel(VERIFICATION_CHANNEL_ID)
+        channel = self.bot.get_channel(channel_id)
         if not channel:
             return
 
@@ -53,13 +52,13 @@ class Verification(commands.Cog):
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
                 f.close()
-                return data.get("message_id", None)
+                return data.get("message_id", None), data.get("channel_id", None)
         except FileNotFoundError:
             pass
 
-    def save_verification_message(self, message_id):
+    def save_verification_message(self, message_id, channel_id):
         with open(DATA_FILE, "w") as f:
-            json.dump({"message_id": message_id}, f)
+            json.dump({"message_id": message_id, "channel_id": channel_id}, f, indent=4)
             f.close()
 
     @app_commands.command()
@@ -75,7 +74,7 @@ class Verification(commands.Cog):
             icon_url=interaction.user.avatar,
         )
         message = await interaction.response.send_message(embed=embed, view=VerificationButton())
-        self.save_verification_message(message.id)
+        self.save_verification_message(message.id, interaction.channel.id)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Verification(bot))

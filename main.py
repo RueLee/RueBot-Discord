@@ -42,6 +42,7 @@ class RueBot(commands.Bot):
 def main():
     intents = discord.Intents.default()
     intents.message_content = True
+    intents.members = True
     bot = RueBot(intents=intents)
 
     @bot.event

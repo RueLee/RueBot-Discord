@@ -147,7 +147,7 @@ class TicTaeToeBolt(commands.Cog):
 
         if player_name is not None:
             if player_name not in interaction.guild.members:
-                await interaction.response.send_message(f"Can't find a player name in this server!", ephemeral=True)
+                await interaction.followup.send(f"Can't find a player name in this server!", ephemeral=True)
                 return
             await player_name.send(f"{interaction.user} requests to play Tic-Tac-Toe-Bolt!\n{message.jump_url}")
 

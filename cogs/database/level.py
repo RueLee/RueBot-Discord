@@ -2,7 +2,7 @@ import discord
 import nltk
 from discord.ext import commands
 
-from ..components.sql_connect import *
+from ..components.sql_connect import get_db_connection
 from ..components.mute.mute_count_db import *
 
 GUILD_WHITELIST_ID = [799809645585498142, 762191678240325662]
@@ -33,70 +33,111 @@ class Level(commands.Cog):
         if message.author.bot or message.guild.id not in GUILD_WHITELIST_ID:
             return
 
-        guild_id = message.guild.id
-        guild_name = message.guild.name
-        guild_created = message.guild.created_at.date()
+        conn = get_db_connection()
 
-        # FIXME: Redundant call on guild
-        cursor.execute(f"INSERT INTO guild (guild_id, guild_name, date_created)\n"
-                            f"VALUES ({guild_id}, '{guild_name}', '{guild_created}')\n"
-                            f"ON DUPLICATE KEY UPDATE guild_name = '{guild_name}'")
+        with conn.cursor() as cursor:
+            guild_id = message.guild.id
+            guild_name = message.guild.name
+            guild_created = message.guild.created_at.date()
 
-        user_id = message.author.id
-        user_name = message.author.name
-        user_join_date = message.author.created_at
-        cursor.execute(f"INSERT INTO guild_user (user_id, user_name, join_date)\n"
-                            f"VALUES ({user_id}, '{user_name}', '{user_join_date}')\n"
-                            f"ON DUPLICATE KEY UPDATE user_name = '{user_name}'")
+            # FIXME: Redundant call on guild
+            cursor.execute(
+                """
+                INSERT INTO guild (guild_id, guild_name, date_created)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE guild_name = %s
+                """,
+                (guild_id, guild_name, guild_created, guild_name))
 
-        rates_db.commit()
+            user_id = message.author.id
+            user_name = message.author.name
+            user_join_date = message.author.created_at
+            cursor.execute(
+                """
+                INSERT INTO guild_user (user_id, user_name, join_date)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE user_name = %s
+                """,
+                (user_id, user_name, user_join_date, user_name))
 
-        cursor.execute(f"SELECT * FROM level WHERE guild_id = {guild_id} AND user_id = {user_id}")
-        result = cursor.fetchone()
-        if result is None:
-            curr_lvl = 0
-            curr_role = None
-            exp = 0
-            exp_level_up = 100
-            cursor.execute(f"INSERT INTO level (guild_id, user_id, level, exp, exp_level_up)\n"
-                                f"VALUES ({guild_id}, {user_id}, {curr_lvl}, {exp}, {exp_level_up})")
-        else:
-            curr_lvl = result[2]
-            curr_role = result[3]
-            exp = result[4]
-            exp_level_up = result[5]
+            conn.commit()
+            update_user_mute(guild_id, user_id, date_rollback=False)
 
-            mute_score = get_mute_count_db(message.guild, message.author)
-            exp += self.compute_points(message.content, mute_score)
+            cursor.execute(
+                """
+                SELECT * FROM level
+                WHERE guild_id = %s AND user_id = %s
+                """,
+                (guild_id, user_id))
+            result = cursor.fetchone()
+            if result is None:
+                curr_lvl = 0
+                curr_role = None
+                exp = 0
+                exp_level_up = 100
+                cursor.execute(
+                    """
+                    INSERT INTO level (guild_id, user_id, level, exp, exp_level_up)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (guild_id, user_id, curr_lvl, exp, exp_level_up))
+            else:
+                curr_lvl = result[2]
+                curr_role = result[3]
+                exp = result[4]
+                exp_level_up = result[5]
 
-        cursor.execute(f"UPDATE level SET exp = {exp} WHERE guild_id = {guild_id} AND user_id = {user_id}")
-        if exp < exp_level_up:
-            rates_db.commit()
-            return
+                mute_score = get_mute_count(message.guild.id, message.author.id)
+                if mute_score is None:
+                    mute_score = 0
 
-        curr_lvl += 1
-        new_exp_level_up = 50 * curr_lvl ** 2 + 100 * curr_lvl + 50
+                exp += self.compute_points(message.content, mute_score[0])
 
-        exp -= exp_level_up
+            cursor.execute(
+                """
+                UPDATE level SET exp = %s
+                WHERE guild_id = %s AND user_id = %s
+                """,
+                (exp, guild_id, user_id))
+            if exp < exp_level_up:
+                conn.commit()
+                return
 
-        if curr_lvl in ROLE_HIERARCHY.keys() and guild_id in ROLE_HIERARCHY_WHITELIST_GUILD_ID:
-            if curr_role is not None:
-                await message.author.remove_roles(curr_role)
-            curr_role = discord.utils.get(message.guild.roles, name=ROLE_HIERARCHY[curr_lvl])
-            await message.author.add_roles(curr_role)
+            curr_lvl += 1
+            new_exp_level_up = 50 * curr_lvl ** 2 + 100 * curr_lvl + 50
 
-        cursor.execute(f"UPDATE level SET level = {curr_lvl}{f", role = '{curr_role}'" if curr_role is not None else ""}, exp = {exp}, exp_level_up = {new_exp_level_up}\n"
-                            f"WHERE guild_id = {guild_id} AND user_id = {user_id}")
+            exp -= exp_level_up
 
-        await message.channel.send(f"{message.author.mention} has leveled up to {curr_lvl}!")
+            if curr_lvl in ROLE_HIERARCHY.keys() and guild_id in ROLE_HIERARCHY_WHITELIST_GUILD_ID:
+                if curr_role is not None:
+                    await message.author.remove_roles(curr_role)
+                curr_role = discord.utils.get(message.guild.roles, name=ROLE_HIERARCHY[curr_lvl])
+                await message.author.add_roles(curr_role)
 
-        rates_db.commit()
+            cursor.execute(
+                """
+                UPDATE level SET level = %s, role = IF(role IS NOT NULL, %s, NULL), exp = %s, exp_level_up = %s
+                WHERE guild_id = %s AND user_id = %s
+                """,
+                (curr_lvl, curr_role, exp, new_exp_level_up, guild_id, user_id))
+
+            await message.channel.send(f"{message.author.mention} has leveled up to {curr_lvl}!")
+
+            conn.commit()
 
     @commands.command()
     async def level(self, interaction: discord.Interaction):
-        cursor.execute(f"SELECT level from level WHERE user_id = {interaction.user.id}")
-        result = cursor.fetchone()
-        await interaction.response.send_message(f"{interaction.user.mention}: Level {result[0]}")
+        conn = get_db_connection()
+
+        with conn.cursor(dictionary=True) as cursor:
+            cursor.execute(
+                """
+                SELECT level FROM level
+                WHERE user_id = %s
+                """,
+                (interaction.user.id))
+            result = cursor.fetchone()
+            await interaction.response.send_message(f"{interaction.user.mention}: Level {result[0]}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Level(bot))

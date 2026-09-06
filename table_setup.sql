@@ -19,15 +19,18 @@ CREATE TABLE IF NOT EXISTS level (
     role VARCHAR(255),
     exp FLOAT NOT NULL,
     exp_level_up INT NOT NULL,
+    PRIMARY KEY (guild_id, user_id),
     FOREIGN KEY (guild_id) REFERENCES guild(guild_id),
     FOREIGN KEY (user_id) REFERENCES guild_user(user_id)
 );
 
--- TODO: Add scheduled mute count decrement after certain time
 CREATE TABLE IF NOT EXISTS user_mute (
     guild_id BIGINT UNSIGNED NOT NULL,
     user_id BIGINT UNSIGNED NOT NULL,
     mute_count INT UNSIGNED NOT NULL,
+    scheduled_decrement DATETIME NOT NULL,
+    prev_scheduled_decrement DATETIME,          -- Backup if staff has unmuted a player and needed to roll back
+    PRIMARY KEY (guild_id, user_id),
     FOREIGN KEY (guild_id) REFERENCES guild(guild_id),
     FOREIGN KEY (user_id) REFERENCES guild_user(user_id)
 );

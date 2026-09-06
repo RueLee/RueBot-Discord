@@ -31,19 +31,18 @@ class Verification(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        message_id, channel_id = self.load_verification_message()
-        if not message_id:
-            return
-
-        channel = self.bot.get_channel(channel_id)
-        if not channel:
-            return
-
         try:
+            message_id, channel_id = self.load_verification_message()
+            if not message_id:
+                raise discord.NotFound
+
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                raise discord.NotFound
+
             message = await channel.fetch_message(message_id)
             view = VerificationButton()
             await message.edit(view=view)
-            print("Reconnected to existing verification message.")
         except discord.NotFound:
             print("Verification message not found, please run /setup_verify again.")
 
